@@ -51,25 +51,25 @@ export const DashboardShell = ({ initialData }: DashboardShellProps) => {
   };
 
   return (
-    <div className="flex flex-col gap-8 py-10">
-      <header className="flex flex-col gap-4 border-b-2 border-slate-600 pb-6 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-6 sm:gap-8 py-6 sm:py-10">
+      <header className="flex flex-col gap-4 border-b-2 border-slate-600 pb-6">
         <div>
-          <p className="text-sm text-slate-400 font-medium uppercase tracking-wide">Dashboard Drag&apos;n Survey</p>
-          <h1 className="text-4xl font-bold text-white mt-2">{dashboard.surveyTitle}</h1>
+          <p className="text-xs sm:text-sm text-slate-400 font-medium uppercase tracking-wide">Dashboard Drag&apos;n Survey</p>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mt-2 break-words">{dashboard.surveyTitle}</h1>
           {dashboard.surveyDescription && (
-            <p className="text-sm text-white/70">
+            <p className="text-xs sm:text-sm text-white/70 mt-1">
               {dashboard.surveyDescription}
             </p>
           )}
         </div>
-        <div className="flex flex-wrap gap-3">
-          <div className="flex rounded-full bg-slate-700 border border-slate-600 p-1">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex rounded-full bg-slate-700 border border-slate-600 p-1 w-full sm:w-auto">
             {PERIODS.map((item) => (
               <button
                 key={item.value}
                 type="button"
                 onClick={() => setPeriod(item.value)}
-                className={`rounded-full px-4 py-1 text-sm transition ${
+                className={`flex-1 sm:flex-none rounded-full px-3 sm:px-4 py-1.5 sm:py-1 text-xs sm:text-sm transition ${
                   period === item.value
                     ? "bg-white text-black"
                     : "text-white/70 hover:text-white"
@@ -83,7 +83,7 @@ export const DashboardShell = ({ initialData }: DashboardShellProps) => {
             type="button"
             onClick={handleRefresh}
             disabled={isValidating || isRefreshing}
-            className="rounded-full border-2 border-slate-600 bg-slate-700 px-4 py-1 text-sm text-white font-medium transition hover:bg-slate-600 hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-full border-2 border-slate-600 bg-slate-700 px-4 py-1.5 sm:py-1 text-xs sm:text-sm text-white font-medium transition hover:bg-slate-600 hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-60 w-full sm:w-auto"
           >
             Actualiser
           </button>

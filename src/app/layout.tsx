@@ -18,6 +18,12 @@ export const metadata: Metadata = {
     "Visualisez les réponses de vos questionnaires Drag'n Survey en temps réel.",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{

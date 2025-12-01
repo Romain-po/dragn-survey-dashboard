@@ -37,22 +37,22 @@ export const SummaryCards = ({ data, isRefreshing }: SummaryCardsProps) => {
   ];
 
   return (
-    <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <section className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
       {items.map((item) => (
         <article
           key={item.label}
-          className="rounded-2xl border-2 border-slate-600 bg-slate-800 p-5 shadow-2xl hover:border-blue-400 hover:shadow-blue-500/20 transition-all duration-300"
+          className="rounded-xl sm:rounded-2xl border-2 border-slate-600 bg-slate-800 p-4 sm:p-5 shadow-2xl hover:border-blue-400 hover:shadow-blue-500/20 transition-all duration-300"
         >
           <p className="text-xs uppercase tracking-wide text-white/60">
             {item.label}
           </p>
-          <p className="mt-3 text-3xl font-semibold text-white">
+          <p className="mt-2 sm:mt-3 text-2xl sm:text-3xl font-semibold text-white break-words">
             {item.value}
             {isRefreshing && (
               <span className="ml-2 text-base text-white/60">…</span>
             )}
           </p>
-          <p className="mt-1 text-sm text-white/70">{item.trend}</p>
+          <p className="mt-1 text-xs sm:text-sm text-white/70">{item.trend}</p>
         </article>
       ))}
     </section>

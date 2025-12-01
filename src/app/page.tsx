@@ -6,7 +6,7 @@ export default async function Home() {
 
   return (
     <main className="min-h-screen bg-[#030712] text-white">
-      <div className="mx-auto w-full max-w-6xl px-5 sm:px-8">
+      <div className="mx-auto w-full max-w-6xl px-4 sm:px-5 md:px-8">
         <DashboardShell initialData={dashboard} />
       </div>
     </main>

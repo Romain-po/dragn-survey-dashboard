@@ -23,31 +23,31 @@ type QuestionBreakdownProps = {
 
 export const QuestionBreakdown = ({ insights }: QuestionBreakdownProps) => {
   return (
-    <section className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-black/30">
+    <section className="rounded-xl sm:rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-6 shadow-lg shadow-black/30">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm text-white/60">Analyse par question</p>
-          <p className="text-2xl font-semibold text-white">
+          <p className="text-xs sm:text-sm text-white/60">Analyse par question</p>
+          <p className="text-xl sm:text-2xl font-semibold text-white">
             {insights.length} questions suivies
           </p>
         </div>
       </div>
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+      <div className="mt-4 sm:mt-6 grid gap-4 sm:gap-6 lg:grid-cols-2">
         {insights.map((insight) => (
           <article
             key={insight.questionId}
-            className="rounded-2xl border-2 border-slate-600 bg-slate-800 p-6 shadow-2xl hover:border-purple-400 hover:shadow-purple-500/20 transition-all duration-300"
+            className="rounded-xl sm:rounded-2xl border-2 border-slate-600 bg-slate-800 p-4 sm:p-6 shadow-2xl hover:border-purple-400 hover:shadow-purple-500/20 transition-all duration-300"
           >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-white/50 uppercase">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs sm:text-sm text-white/50 uppercase">
                   {typeLabel(insight.type)}
                 </p>
-                <p className="text-lg font-semibold text-white">
+                <p className="text-base sm:text-lg font-semibold text-white break-words">
                   {insight.title}
                 </p>
               </div>
-              <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-white/70">
+              <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-white/70 self-start sm:self-auto whitespace-nowrap">
                 {insight.sampleSize} réponses
               </span>
             </div>
@@ -72,15 +72,15 @@ const renderInsight = (insight: QuestionInsight) => {
     }));
     return (
       <>
-        <div className="h-48 w-full -ml-8">
+        <div className="h-48 sm:h-48 w-full -ml-4 sm:-ml-8">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} layout="vertical" margin={{ left: 0, right: 20, top: 5, bottom: 5 }}>
+            <BarChart data={chartData} layout="vertical" margin={{ left: 0, right: 10, top: 5, bottom: 5 }}>
               <XAxis type="number" hide />
               <YAxis
                 type="category"
                 dataKey="label"
-                width={160}
-                tick={{ fill: "#e2e8f0", fontSize: 10 }}
+                width={100}
+                tick={{ fill: "#e2e8f0", fontSize: 9 }}
                 tickLine={false}
                 axisLine={false}
                 interval={0}
@@ -97,11 +97,12 @@ const renderInsight = (insight: QuestionInsight) => {
                 contentStyle={{
                   background: "#0f172a",
                   border: "1px solid rgba(255,255,255,0.2)",
-                  borderRadius: "1rem",
+                  borderRadius: "0.75rem",
                   color: "white",
+                  fontSize: "11px",
                 }}
               />
-              <Bar dataKey="count" fill="url(#colorGradient)" radius={8} />
+              <Bar dataKey="count" fill="url(#colorGradient)" radius={6} />
               <defs>
                 <linearGradient id="colorGradient" x1="0" y1="0" x2="1" y2="0">
                   <stop offset="0%" stopColor="#8b5cf6" />
@@ -111,9 +112,9 @@ const renderInsight = (insight: QuestionInsight) => {
             </BarChart>
           </ResponsiveContainer>
         </div>
-        <ul className="mt-3 text-xs text-white/70">
+        <ul className="mt-3 text-xs text-white/70 space-y-1">
           {chartData.map((option) => (
-            <li key={option.fullLabel}>
+            <li key={option.fullLabel} className="break-words">
               {option.fullLabel}: {option.count} réponses • {option.percentage}%
             </li>
           ))}
@@ -128,26 +129,26 @@ const renderInsight = (insight: QuestionInsight) => {
     const color = percentage >= 80 ? "#10b981" : percentage >= 60 ? "#3b82f6" : percentage >= 40 ? "#f59e0b" : "#ef4444";
     
     return (
-      <div className="space-y-4">
-        <div className="flex items-end gap-6">
+      <div className="space-y-3 sm:space-y-4">
+        <div className="flex items-end gap-4 sm:gap-6">
           <div>
-            <p className="text-sm text-white/60 mb-1">Moyenne</p>
-            <p className="text-5xl font-bold text-white">
+            <p className="text-xs sm:text-sm text-white/60 mb-1">Moyenne</p>
+            <p className="text-3xl sm:text-5xl font-bold text-white">
               {insight.average.toFixed(1)}
-              <span className="text-2xl text-white/40 ml-1">/ {maxRating}</span>
+              <span className="text-lg sm:text-2xl text-white/40 ml-1">/ {maxRating}</span>
             </p>
           </div>
           {typeof insight.median === "number" && (
-            <div className="pb-2">
-              <p className="text-sm text-white/60">Médiane</p>
-              <p className="text-3xl font-semibold text-white">{insight.median.toFixed(1)}</p>
+            <div className="pb-1 sm:pb-2">
+              <p className="text-xs sm:text-sm text-white/60">Médiane</p>
+              <p className="text-2xl sm:text-3xl font-semibold text-white">{insight.median.toFixed(1)}</p>
             </div>
           )}
         </div>
         
         {/* Visual rating bar */}
         <div className="space-y-2">
-          <div className="h-3 bg-white/10 rounded-full overflow-hidden">
+          <div className="h-2.5 sm:h-3 bg-white/10 rounded-full overflow-hidden">
             <div 
               className="h-full rounded-full transition-all duration-500"
               style={{ 
@@ -167,18 +168,18 @@ const renderInsight = (insight: QuestionInsight) => {
 
   if (insight.topTextAnswers?.length) {
     return (
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2 sm:gap-3">
         {insight.topTextAnswers.map((answer, index) => (
           <blockquote
             key={answer}
-            className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/80"
+            className="rounded-lg sm:rounded-xl border border-white/10 bg-white/5 p-2.5 sm:p-3 text-xs sm:text-sm text-white/80 break-words"
           >
             <span className="mr-2 text-white/40">#{index + 1}</span>
             {answer}
           </blockquote>
         ))}
         {insight.topWords?.length ? (
-          <p className="text-xs text-white/60">
+          <p className="text-xs text-white/60 break-words">
             Mots clés&nbsp;:{" "}
             {insight.topWords.map((word) => `${word.word} (${word.count})`).join(", ")}
           </p>
