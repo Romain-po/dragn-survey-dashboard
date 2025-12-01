@@ -46,6 +46,11 @@ export const mockSurvey: SurveyDetails = {
 
 export function generateMockResponses(count = 160): RawSurveyResponse[] {
   const responses: RawSurveyResponse[] = [];
+  const q1 = baseQuestions[0]!;
+  const q2 = baseQuestions[1]!;
+  const q3 = baseQuestions[2]!;
+  const q4 = baseQuestions[3]!;
+  
   for (let i = 0; i < count; i += 1) {
     const submitted = new Date(Date.now() - Math.random() * 1000 * 60 * 60 * 24 * 30);
     const rating = Math.ceil(Math.random() * 5);
@@ -56,33 +61,28 @@ export function generateMockResponses(count = 160): RawSurveyResponse[] {
       submitted_at: submitted.toISOString(),
       answers: [
         {
-          question_id: baseQuestions[0].id,
-          question_title: baseQuestions[0].title,
+          question_id: q1.id,
+          question_title: q1.title,
           question_type: "single_choice",
-          value:
-            baseQuestions[0].options[
-              Math.floor(Math.random() * baseQuestions[0].options.length)
-            ],
+          value: q1.options![Math.floor(Math.random() * q1.options!.length)],
         },
         {
-          question_id: baseQuestions[1].id,
-          question_title: baseQuestions[1].title,
+          question_id: q2.id,
+          question_title: q2.title,
           question_type: "rating",
           value: rating,
         },
         {
-          question_id: baseQuestions[2].id,
-          question_title: baseQuestions[2].title,
+          question_id: q3.id,
+          question_title: q3.title,
           question_type: "text",
           value: improvementsShuffle.slice(0, 1 + Math.floor(Math.random() * 2)).join(", "),
         },
         {
-          question_id: baseQuestions[3].id,
-          question_title: baseQuestions[3].title,
+          question_id: q4.id,
+          question_title: q4.title,
           question_type: "multiple_choice",
-          value: baseQuestions[3].options
-            .filter(() => Math.random() > 0.4)
-            .slice(0, 3),
+          value: q4.options!.filter(() => Math.random() > 0.4).slice(0, 3),
         },
       ],
     });
