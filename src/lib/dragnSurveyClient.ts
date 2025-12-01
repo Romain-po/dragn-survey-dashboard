@@ -4,7 +4,7 @@ import { RawSurveyResponse, SurveyDetails, QuestionType, RawAnswer } from "./typ
 
 const API_TIMEOUT_MS = 15_000;
 const RATE_LIMIT_DELAY_MS = 500; // Delay between API calls to avoid rate limiting (increased to 500ms)
-const CACHE_DURATION_MS = 5 * 60 * 1000; // Cache questions for 5 minutes
+const CACHE_DURATION_MS = 1 * 60 * 1000; // Cache questions for 1 minute
 const MAX_RETRIES = 2; // Number of retries for failed requests
 
 function delay(ms: number): Promise<void> {
