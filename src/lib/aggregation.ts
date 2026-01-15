@@ -131,6 +131,8 @@ const buildQuestionInsights = (
     });
   });
 
+  console.log(`📊 Building insights: ${questions.length} questions from metadata, ${fallbackMeta.size} from responses`);
+
   const orderedQuestions =
     questions && questions.length > 0
       ? questions
@@ -140,6 +142,8 @@ const buildQuestionInsights = (
           type: meta.type ?? "unknown",
           choices: undefined,
         }));
+
+  console.log(`📊 Using ${orderedQuestions.length} questions for insights (${questions.length > 0 ? 'from metadata' : 'from responses'})`);
 
   return orderedQuestions.map((question) => {
     const values = answerBuckets.get(question.id) ?? [];

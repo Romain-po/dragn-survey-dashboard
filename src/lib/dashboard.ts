@@ -9,8 +9,8 @@ type DashboardOptions = {
   forceRefresh?: boolean;
 };
 
-const SNAPSHOT_FRESHNESS_MS = 15 * 60 * 1000; // 15 minutes
-const MEMORY_CACHE_MS = 60 * 1000; // 1 minute in-memory cache
+const SNAPSHOT_FRESHNESS_MS = 30 * 60 * 1000; // 30 minutes (augmenté pour réduire les recharges)
+const MEMORY_CACHE_MS = 5 * 60 * 1000; // 5 minutes in-memory cache (augmenté)
 
 // In-memory cache for super fast responses
 let memoryCache: {
@@ -87,8 +87,11 @@ export const getDashboardDataWithFallback = async (
 
   // 2. Fetch Fresh (Level 2: Smart Raw Data Fetch)
   try {
-    console.log("🔄 Building fresh dashboard data...");
+    const startTime = Date.now();
+    console.log("🔄 Building fresh dashboard data (this may take 3-5 seconds)...");
     const freshData = await fetchFreshDashboardData(options);
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`✅ Dashboard data built in ${duration}s`);
     
     // Update in-memory cache with fresh data
     memoryCache = {

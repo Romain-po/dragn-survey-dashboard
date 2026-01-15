@@ -11,10 +11,10 @@ import {
 import { normalizeChoiceLabel } from "./utils";
 
 const API_TIMEOUT_MS = 15_000;
-const RATE_LIMIT_DELAY_MS = 1000; // Delay between API calls to avoid rate limiting (increased to 1s)
-const CACHE_DURATION_MS = 15 * 60 * 1000; // Cache questions for 15 minutes (questions rarely change)
+const RATE_LIMIT_DELAY_MS = 200; // Delay between batches (200ms - aggressive)
+const CACHE_DURATION_MS = 60 * 60 * 1000; // Cache questions for 1 hour (questions rarely change)
 const MAX_RETRIES = 3; // Number of retries for failed requests
-const BATCH_SIZE = 3; // Reduced batch size to avoid rate limits
+const BATCH_SIZE = 10; // Large batch size for speed (will retry if rate limited)
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -63,8 +63,9 @@ async function fetchJSON<T>(
 
       // Retry on rate limit errors with exponential backoff
       if (response.status === 429 && retries > 0) {
+        // Exponential backoff: 500ms, 1000ms, 2000ms
         const backoffMultiplier = Math.pow(2, MAX_RETRIES - retries);
-        const waitTime = RATE_LIMIT_DELAY_MS * backoffMultiplier;
+        const waitTime = 500 * backoffMultiplier;
         console.warn(
           `⏳ Rate limited (429), waiting ${waitTime}ms before retry (${retries} retries left)...`,
         );
@@ -182,10 +183,7 @@ async function fetchQuestionsMap(surveyData: SurveyData): Promise<QuestionMap> {
 
   const pages = await Promise.all(pagesPromises);
   
-  // Small delay after fetching pages before starting component fetch
-  if (pages.length > 0) {
-    await delay(RATE_LIMIT_DELAY_MS);
-  }
+  // No delay needed - we'll handle rate limits with retries
 
   // Collect all component IDs from all pages
   const allComponentIds: string[] = [];
@@ -195,7 +193,7 @@ async function fetchQuestionsMap(surveyData: SurveyData): Promise<QuestionMap> {
     }
   });
 
-  console.log(`📋 Found ${allComponentIds.length} components to fetch`);
+  console.log(`📋 Found ${allComponentIds.length} total components to fetch from ${pages.filter(p => p).length} pages`);
 
   // Fetch all components in batches to avoid overwhelming the API
   const componentBatches: string[][] = [];
@@ -204,6 +202,9 @@ async function fetchQuestionsMap(surveyData: SurveyData): Promise<QuestionMap> {
   }
 
   console.log(`📦 Fetching ${componentBatches.length} batches of ${BATCH_SIZE} components each...`);
+
+  let skippedCount = 0;
+  let questionCount = 0;
 
   for (let i = 0; i < componentBatches.length; i++) {
     const batch = componentBatches[i];
@@ -226,8 +227,9 @@ async function fetchQuestionsMap(surveyData: SurveyData): Promise<QuestionMap> {
       // Skip non-question components (text blocks, images, etc.)
       const skipTypes = ["textZone", "image", "video", "separator"];
       if (skipTypes.includes(component.type)) {
+        skippedCount++;
         console.log(
-          `⏭️  Skipping non-question component ${component.id} (type: ${component.type})`,
+          `⏭️  Skipping non-question component ${component.id} "${cleanTitle || 'no title'}" (type: ${component.type})`,
         );
         return;
       }
@@ -257,8 +259,9 @@ async function fetchQuestionsMap(surveyData: SurveyData): Promise<QuestionMap> {
         })),
       });
 
+      questionCount++;
       console.log(
-        `✓ Loaded question: ${cleanTitle.substring(0, 50)}... (type: ${component.type}, ${choices.length} choices)`,
+        `✓ Loaded question ${questionCount}: ${cleanTitle.substring(0, 50)}... (type: ${component.type}, ${choices.length} choices)`,
       );
     });
 
@@ -269,7 +272,16 @@ async function fetchQuestionsMap(surveyData: SurveyData): Promise<QuestionMap> {
     }
   }
 
-  console.log(`✓ Loaded ${questionsMap.size} questions`);
+  console.log(`\n📊 SUMMARY:`);
+  console.log(`  - Total components: ${allComponentIds.length}`);
+  console.log(`  - Questions loaded: ${questionsMap.size}`);
+  console.log(`  - Non-questions skipped: ${skippedCount}`);
+  console.log(`  - Failed to load: ${allComponentIds.length - questionsMap.size - skippedCount}`);
+  
+  // Log all question IDs for debugging
+  if (questionsMap.size < 15) {
+    console.log(`\n📋 Question IDs: ${Array.from(questionsMap.keys()).join(', ')}`);
+  }
 
   // Update cache
   questionsCache = {
@@ -401,6 +413,8 @@ async function fetchCollectorData(): Promise<{
       choices: info.choices,
     }),
   );
+
+  console.log(`📊 Returning ${orderedQuestions.length} questions metadata`);
 
   const newResponses: RawSurveyResponse[] = [];
 
