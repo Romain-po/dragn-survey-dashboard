@@ -31,6 +31,19 @@ export type SurveyDetails = {
   created_at?: string;
 };
 
+export type QuestionChoice = {
+  label: string;
+  key: string;
+};
+
+export type QuestionMeta = {
+  id: string;
+  title: string;
+  type: QuestionType;
+  choices?: QuestionChoice[];
+  scale?: number;
+};
+
 export type TrendPoint = {
   date: string;
   count: number;
@@ -71,7 +84,6 @@ export type DashboardData = {
   completionRate: number;
   averagePerDay: number;
   updatedAt: string;
-  periodDays?: number;
   responseVelocity: TrendPoint[];
   questionInsights: QuestionInsight[];
   latestResponses: LatestResponse[];

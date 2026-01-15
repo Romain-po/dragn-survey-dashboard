@@ -5,8 +5,8 @@ export default async function Home() {
   const dashboard = await getDashboardDataWithFallback({ days: 30 });
 
   return (
-    <main className="min-h-screen bg-[#030712] text-white">
-      <div className="mx-auto w-full max-w-6xl px-4 sm:px-5 md:px-8">
+    <main className="min-h-screen text-white">
+      <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 md:px-8">
         <DashboardShell initialData={dashboard} />
       </div>
     </main>

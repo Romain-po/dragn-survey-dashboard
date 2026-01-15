@@ -1,10 +1,18 @@
 import {
   DashboardData,
   QuestionInsight,
+  QuestionMeta,
+  QuestionType,
   RawSurveyResponse,
   SurveyDetails,
 } from "./types";
-import { average, median, safePercentage, topWords } from "./utils";
+import {
+  average,
+  median,
+  normalizeChoiceLabel,
+  safePercentage,
+  topWords,
+} from "./utils";
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   month: "short",
@@ -14,13 +22,13 @@ const DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
 type BuildDashboardOptions = {
   responses: RawSurveyResponse[];
   survey: SurveyDetails;
-  periodDays?: number;
+  questions: QuestionMeta[];
 };
 
 export const buildDashboardData = ({
   responses,
   survey,
-  periodDays,
+  questions,
 }: BuildDashboardOptions): DashboardData => {
   const sortedResponses = [...responses].sort((a, b) => {
     const aDate = a.submitted_at ? new Date(a.submitted_at).getTime() : 0;
@@ -42,12 +50,17 @@ export const buildDashboardData = ({
     : new Date();
   const diffDays = Math.max(
     1,
-    Math.round((lastDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24)),
+    Math.round(
+      (lastDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24),
+    ),
   );
 
   const responseVelocity = buildVelocity(sortedResponses);
 
-  const questionInsights = buildQuestionInsights(sortedResponses);
+  const questionInsights = buildQuestionInsights(
+    sortedResponses,
+    questions ?? [],
+  );
 
   const latestResponses = sortedResponses
     .slice(-6)
@@ -71,7 +84,6 @@ export const buildDashboardData = ({
     completionRate,
     averagePerDay: Math.round((totalResponses / diffDays) * 10) / 10,
     updatedAt: new Date().toISOString(),
-    periodDays,
     responseVelocity,
     questionInsights,
     latestResponses,
@@ -98,63 +110,106 @@ const buildVelocity = (responses: RawSurveyResponse[]) => {
 
 const buildQuestionInsights = (
   responses: RawSurveyResponse[],
+  questions: QuestionMeta[],
 ): QuestionInsight[] => {
-  const questionMap = new Map<
+  const answerBuckets = new Map<string, unknown[]>();
+  const fallbackMeta = new Map<
     string,
-    { title: string; type: QuestionInsight["type"]; values: unknown[] }
+    { title: string; type: QuestionType | undefined }
   >();
 
   responses.forEach((response) => {
     response.answers.forEach((answer) => {
-      const entry = questionMap.get(answer.question_id) ?? {
-        title: answer.question_title,
-        type: answer.question_type ?? "unknown",
-        values: [],
-      };
-      entry.values.push(answer.value);
-      questionMap.set(answer.question_id, entry);
+      if (!answerBuckets.has(answer.question_id)) {
+        answerBuckets.set(answer.question_id, []);
+        fallbackMeta.set(answer.question_id, {
+          title: answer.question_title,
+          type: answer.question_type,
+        });
+      }
+      answerBuckets.get(answer.question_id)!.push(answer.value);
     });
   });
 
-  return Array.from(questionMap.entries()).map(([questionId, payload]) => {
-    const sampleSize = payload.values.length;
+  const orderedQuestions =
+    questions && questions.length > 0
+      ? questions
+      : Array.from(fallbackMeta.entries()).map(([questionId, meta]) => ({
+          id: questionId,
+          title: meta.title ?? questionId,
+          type: meta.type ?? "unknown",
+          choices: undefined,
+        }));
+
+  return orderedQuestions.map((question) => {
+    const values = answerBuckets.get(question.id) ?? [];
+    const sampleSize = values.length;
+
     const insight: QuestionInsight = {
-      questionId,
-      title: payload.title,
-      type: payload.type ?? "unknown",
+      questionId: question.id,
+      title: question.title,
+      type: question.type,
       sampleSize,
     };
 
-    if (payload.type === "single_choice" || payload.type === "multiple_choice") {
+    if (
+      question.type === "single_choice" ||
+      question.type === "multiple_choice"
+    ) {
       const choiceMap = new Map<string, number>();
-    const responsesCount = payload.values.length || 1;
-      payload.values
+      values
         .flatMap((value) => {
-          if (Array.isArray(value)) return value;
+          if (Array.isArray(value)) return value as string[];
           if (typeof value === "string") return [value];
           return [];
         })
         .forEach((value) => {
-          choiceMap.set(value, (choiceMap.get(value) ?? 0) + 1);
+          const key = normalizeChoiceLabel(value);
+          choiceMap.set(key, (choiceMap.get(key) ?? 0) + 1);
         });
-      insight.options = Array.from(choiceMap.entries())
-        .sort(([, a], [, b]) => b - a)
-        .map(([label, count]) => ({
+
+      const orderedChoices =
+        question.choices && question.choices.length > 0
+          ? question.choices
+          : Array.from(choiceMap.keys()).map((key) => ({
+              key,
+              label: key,
+            }));
+
+      const options = orderedChoices.map(({ key, label }) => {
+        const count = choiceMap.get(key) ?? 0;
+        return {
           label,
           count,
-        percentage: safePercentage(count, responsesCount),
-        }));
-    } else if (payload.type === "rating" || payload.type === "number") {
-      const numericValues = payload.values
+          percentage: safePercentage(count, sampleSize || 1),
+        };
+      });
+
+      // Append any unexpected answers that were not part of the official choices
+      choiceMap.forEach((count, key) => {
+        const exists =
+          orderedChoices.some((choice) => choice.key === key) ?? false;
+        if (!exists) {
+          options.push({
+            label: key,
+            count,
+            percentage: safePercentage(count, sampleSize || 1),
+          });
+        }
+      });
+
+      insight.options = options;
+    } else if (question.type === "rating" || question.type === "number") {
+      const numericValues = values
         .map((value) => (typeof value === "number" ? value : Number(value)))
         .filter((value) => Number.isFinite(value));
       insight.average = average(numericValues);
       insight.median = median(numericValues);
-    } else if (payload.type === "text") {
-      const textValues = payload.values
+    } else if (question.type === "text") {
+      const textValues = values
         .map((value) => (typeof value === "string" ? value : ""))
         .filter(Boolean);
-      insight.topTextAnswers = textValues.slice(-3).reverse();
+      insight.topTextAnswers = textValues.reverse();
       insight.topWords = topWords(textValues);
     }
 
@@ -162,9 +217,10 @@ const buildQuestionInsights = (
   });
 };
 
-const formatAnswerValue = (value: RawSurveyResponse["answers"][number]["value"]) => {
+const formatAnswerValue = (
+  value: RawSurveyResponse["answers"][number]["value"],
+) => {
   if (Array.isArray(value)) return value.join(", ");
   if (typeof value === "number") return value.toString();
   return value ?? "";
 };
-

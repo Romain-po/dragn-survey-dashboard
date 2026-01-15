@@ -6,15 +6,20 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const daysParam = searchParams.get("days");
   const days = daysParam ? Number(daysParam) : undefined;
+  const refreshParam = searchParams.get("refresh");
+  const forceRefresh = refreshParam === "true";
 
   try {
     const data = await getDashboardDataWithFallback({
       days: Number.isNaN(days) ? undefined : days,
+      forceRefresh,
     });
 
     return NextResponse.json(data, {
       headers: {
-        "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+        "Cache-Control": forceRefresh 
+          ? "no-store, max-age=0" 
+          : "public, s-maxage=60, stale-while-revalidate=300",
       },
     });
   } catch (error) {

@@ -1,6 +1,9 @@
 export const safePercentage = (value: number, total: number) =>
   total === 0 ? 0 : Math.round((value / total) * 1000) / 10;
 
+export const normalizeChoiceLabel = (value: string) =>
+  value.replace(/\s+/g, " ").trim().toLowerCase();
+
 export const formatISODate = (value?: string) => {
   if (!value) return undefined;
   return new Date(value).toISOString();

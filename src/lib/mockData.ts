@@ -1,11 +1,23 @@
-import { RawSurveyResponse, SurveyDetails } from "./types";
+import { QuestionMeta, RawSurveyResponse, SurveyDetails } from "./types";
+import { normalizeChoiceLabel } from "./utils";
 
-const baseQuestions = [
+const withChoices = (labels: string[]) =>
+  labels.map((label) => ({
+    label,
+    key: normalizeChoiceLabel(label),
+  }));
+
+const baseQuestions: QuestionMeta[] = [
   {
     id: "q1",
     title: "Comment avez-vous découvert notre questionnaire ?",
     type: "single_choice",
-    options: ["Email", "Réseaux sociaux", "Site web", "Recommandation"],
+    choices: withChoices([
+      "Email",
+      "Réseaux sociaux",
+      "Site web",
+      "Recommandation",
+    ]),
   },
   {
     id: "q2",
@@ -22,7 +34,7 @@ const baseQuestions = [
     id: "q4",
     title: "Quelles fonctionnalités utilisez-vous ?",
     type: "multiple_choice",
-    options: ["Rapports", "Export CSV", "Notifications", "API"],
+    choices: withChoices(["Rapports", "Export CSV", "Notifications", "API"]),
   },
 ];
 
@@ -64,7 +76,8 @@ export function generateMockResponses(count = 160): RawSurveyResponse[] {
           question_id: q1.id,
           question_title: q1.title,
           question_type: "single_choice",
-          value: q1.options![Math.floor(Math.random() * q1.options!.length)],
+          value:
+            q1.choices![Math.floor(Math.random() * q1.choices!.length)].label,
         },
         {
           question_id: q2.id,
@@ -82,7 +95,10 @@ export function generateMockResponses(count = 160): RawSurveyResponse[] {
           question_id: q4.id,
           question_title: q4.title,
           question_type: "multiple_choice",
-          value: q4.options!.filter(() => Math.random() > 0.4).slice(0, 3),
+          value: q4.choices!
+            .filter(() => Math.random() > 0.4)
+            .slice(0, 3)
+            .map((choice) => choice.label),
         },
       ],
     });
@@ -94,5 +110,6 @@ export function generateMockResponses(count = 160): RawSurveyResponse[] {
 export const mockPayload = () => ({
   survey: mockSurvey,
   responses: generateMockResponses(),
+  questions: baseQuestions,
 });
 

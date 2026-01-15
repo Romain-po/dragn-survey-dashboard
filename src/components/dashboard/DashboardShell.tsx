@@ -1,12 +1,11 @@
 "use client";
 
-import { useTransition, useState } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 
 import { DashboardData } from "@/lib/types";
 
 import { QuestionBreakdown } from "./QuestionBreakdown";
-import { ResponseVelocityChart } from "./ResponseVelocityChart";
 import { SummaryCards } from "./SummaryCards";
 
 const fetcher = async (input: string) => {
@@ -17,23 +16,15 @@ const fetcher = async (input: string) => {
   return (await response.json()) as DashboardData;
 };
 
-const PERIODS = [
-  { label: "7 jours", value: 7 },
-  { label: "30 jours", value: 30 },
-  { label: "90 jours", value: 90 },
-];
-
 type DashboardShellProps = {
   initialData: DashboardData;
 };
 
 export const DashboardShell = ({ initialData }: DashboardShellProps) => {
-  const defaultPeriod = initialData.periodDays ?? 30;
-  const [period, setPeriod] = useState(defaultPeriod);
-  const [isRefreshing, startTransition] = useTransition();
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
   const { data, error, isValidating, mutate } = useSWR<DashboardData>(
-    `/api/responses?days=${period}`,
+    `/api/responses`,
     fetcher,
     {
       fallbackData: initialData,
@@ -44,68 +35,124 @@ export const DashboardShell = ({ initialData }: DashboardShellProps) => {
 
   const dashboard = data ?? initialData;
 
-  const handleRefresh = () => {
-    startTransition(() => {
-      mutate();
-    });
+  const handleRefresh = async () => {
+    setIsManualRefreshing(true);
+    try {
+      // Force refresh the backend cache
+      await fetch(`/api/responses?refresh=true`);
+      // Then revalidate SWR
+      await mutate();
+    } catch (error) {
+      console.error("Refresh failed", error);
+    } finally {
+      setIsManualRefreshing(false);
+    }
   };
 
   return (
-    <div className="flex flex-col gap-6 sm:gap-8 py-6 sm:py-10">
-      <header className="flex flex-col gap-4 border-b-2 border-slate-600 pb-6">
-        <div>
-          <p className="text-xs sm:text-sm text-slate-400 font-medium uppercase tracking-wide">Dashboard Drag&apos;n Survey</p>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mt-2 break-words">{dashboard.surveyTitle}</h1>
+    <div className="flex flex-col gap-8 sm:gap-10 py-8 sm:py-12">
+      {/* Header Section */}
+      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 border-b border-white/10 pb-8">
+        <div className="space-y-2 max-w-2xl">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            <p className="text-xs font-bold tracking-[0.2em] text-emerald-400 uppercase">
+              Live Dashboard
+            </p>
+          </div>
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-white tracking-tight leading-tight">
+            {dashboard.surveyTitle}
+          </h1>
           {dashboard.surveyDescription && (
-            <p className="text-xs sm:text-sm text-white/70 mt-1">
+            <p className="text-sm sm:text-base text-slate-400 leading-relaxed max-w-xl">
               {dashboard.surveyDescription}
             </p>
           )}
         </div>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex rounded-full bg-slate-700 border border-slate-600 p-1 w-full sm:w-auto">
-            {PERIODS.map((item) => (
-              <button
-                key={item.value}
-                type="button"
-                onClick={() => setPeriod(item.value)}
-                className={`flex-1 sm:flex-none rounded-full px-3 sm:px-4 py-1.5 sm:py-1 text-xs sm:text-sm transition ${
-                  period === item.value
-                    ? "bg-white text-black"
-                    : "text-white/70 hover:text-white"
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+
+        <div className="flex flex-col sm:flex-row gap-4">
           <button
             type="button"
             onClick={handleRefresh}
-            disabled={isValidating || isRefreshing}
-            className="rounded-full border-2 border-slate-600 bg-slate-700 px-4 py-1.5 sm:py-1 text-xs sm:text-sm text-white font-medium transition hover:bg-slate-600 hover:border-slate-500 disabled:cursor-not-allowed disabled:opacity-60 w-full sm:w-auto"
+            disabled={isValidating || isManualRefreshing}
+            className="group relative overflow-hidden rounded-xl bg-indigo-600 px-6 py-2 text-sm font-medium text-white transition-all hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Actualiser
+            <span className="relative z-10 flex items-center gap-2">
+              {isValidating || isManualRefreshing ? (
+                <>
+                  <svg
+                    className="animate-spin h-4 w-4"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    />
+                  </svg>
+                  <span>Mise à jour...</span>
+                </>
+              ) : (
+                <>
+                  <svg
+                    className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                  <span>Actualiser</span>
+                </>
+              )}
+            </span>
+            {/* Hover shine effect */}
+            <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-linear-to-r from-transparent via-white/20 to-transparent z-0" />
           </button>
         </div>
       </header>
 
       {error ? (
-        <div className="rounded-2xl border border-red-400/40 bg-red-500/10 p-4 text-sm text-red-100">
-          Erreur lors du chargement des données. Merci de vérifier votre clé API
-          Drag&apos;n Survey.
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200 flex items-center gap-3">
+          <svg
+            className="w-5 h-5 shrink-0"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <span>
+            Erreur lors du chargement des données. Vérifiez votre clé API
+            Drag&apos;n Survey.
+          </span>
         </div>
       ) : null}
 
       <SummaryCards
         data={dashboard}
-        isRefreshing={isValidating || isRefreshing}
+        isRefreshing={isValidating || isManualRefreshing}
       />
-
-      <ResponseVelocityChart points={dashboard.responseVelocity} />
 
       <QuestionBreakdown insights={dashboard.questionInsights} />
     </div>
   );
 };
-

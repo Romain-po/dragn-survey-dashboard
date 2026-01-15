@@ -1,10 +1,18 @@
-import { env, hasDragNSurveyCredentials } from "./env";
+import { fetchRawData, saveRawData } from "./cache";
+import { env, hasDragNSurveyCredentials, hasSupabaseCredentials } from "./env";
 import { mockPayload } from "./mockData";
-import { RawSurveyResponse, SurveyDetails, QuestionType, RawAnswer } from "./types";
+import {
+  RawSurveyResponse,
+  SurveyDetails,
+  QuestionType,
+  RawAnswer,
+  QuestionMeta,
+} from "./types";
+import { normalizeChoiceLabel } from "./utils";
 
 const API_TIMEOUT_MS = 15_000;
-const RATE_LIMIT_DELAY_MS = 500; // Delay between API calls to avoid rate limiting (increased to 500ms)
-const CACHE_DURATION_MS = 1 * 60 * 1000; // Cache questions for 1 minute
+const RATE_LIMIT_DELAY_MS = 500; // Delay between API calls to avoid rate limiting
+const CACHE_DURATION_MS = 15 * 60 * 1000; // Cache questions for 15 minutes (questions rarely change)
 const MAX_RETRIES = 2; // Number of retries for failed requests
 
 function delay(ms: number): Promise<void> {
@@ -22,13 +30,15 @@ let questionsCache: {
   timestamp: 0, // Set to 0 to force fresh fetch on next load
 };
 
-async function fetchJSON<T>(endpoint: string, init?: RequestInit, retries = MAX_RETRIES): Promise<T> {
+async function fetchJSON<T>(
+  endpoint: string,
+  init?: RequestInit,
+  retries = MAX_RETRIES,
+): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   const { baseUrl, apiKey } = env.dragNSurvey;
-  const normalizedBase = baseUrl.endsWith("/")
-    ? baseUrl
-    : `${baseUrl}/`;
+  const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
   const normalizedEndpoint = endpoint.startsWith("/")
     ? endpoint.slice(1)
     : endpoint;
@@ -49,15 +59,17 @@ async function fetchJSON<T>(endpoint: string, init?: RequestInit, retries = MAX_
 
     if (!response.ok) {
       const errorBody = await response.text();
-      
+
       // Retry on rate limit errors
       if (response.status === 429 && retries > 0) {
         const waitTime = RATE_LIMIT_DELAY_MS * (MAX_RETRIES - retries + 2);
-        console.warn(`⏳ Rate limited, waiting ${waitTime}ms before retry (${retries} retries left)...`);
+        console.warn(
+          `⏳ Rate limited, waiting ${waitTime}ms before retry (${retries} retries left)...`,
+        );
         await delay(waitTime);
         return fetchJSON<T>(endpoint, init, retries - 1);
       }
-      
+
       throw new Error(
         `Drag'n Survey API error (${response.status}): ${errorBody}`,
       );
@@ -114,10 +126,29 @@ type QuestionMap = Map<
   string,
   {
     title: string;
-    type: string;
-    choices: string[];
+    type: QuestionType;
+    choices: { label: string; key: string }[];
   }
 >;
+
+const mapQuestionType = (apiType: string): QuestionType => {
+  if (apiType === "choice" || apiType === "yesNo") {
+    return "single_choice";
+  }
+  if (apiType === "multiple") {
+    return "multiple_choice";
+  }
+  if (apiType === "rating" || apiType === "rate") {
+    return "rating";
+  }
+  if (apiType === "number") {
+    return "number";
+  }
+  if (apiType === "text" || apiType === "freeField") {
+    return "text";
+  }
+  return "unknown";
+};
 
 async function fetchQuestionsMap(surveyData: SurveyData): Promise<QuestionMap> {
   // Check cache first
@@ -127,7 +158,9 @@ async function fetchQuestionsMap(surveyData: SurveyData): Promise<QuestionMap> {
     questionsCache.surveyId === surveyData.id &&
     now - questionsCache.timestamp < CACHE_DURATION_MS
   ) {
-    console.log(`📦 Using cached questions (${questionsCache.map.size} questions)`);
+    console.log(
+      `📦 Using cached questions (${questionsCache.map.size} questions)`,
+    );
     return questionsCache.map;
   }
 
@@ -135,71 +168,171 @@ async function fetchQuestionsMap(surveyData: SurveyData): Promise<QuestionMap> {
   const questionsMap: QuestionMap = new Map();
   const pageIds = surveyData.pages ?? [];
 
-  for (const pageId of pageIds) {
-    try {
-      const page = await fetchJSON<PageData>(`/pages/${pageId}`);
-      await delay(RATE_LIMIT_DELAY_MS);
-      
-      const componentIds = page.components ?? [];
-
-      // Fetch components sequentially to avoid rate limiting
-      for (const componentId of componentIds) {
-        try {
-          const component = await fetchJSON<ComponentData>(`/components/${componentId}`);
-          await delay(RATE_LIMIT_DELAY_MS);
-
-          const cleanTitle = component.title
-            ?.replace(/<[^>]*>/g, "")
-            .trim() ?? "";
-
-          // Skip non-question components (text blocks, images, etc.)
-          const skipTypes = ['textZone', 'image', 'video', 'separator'];
-          if (skipTypes.includes(component.type)) {
-            console.log(`⏭️  Skipping non-question component ${componentId} (type: ${component.type})`);
-            continue;
-          }
-
-          // Skip if title is empty after cleaning (but keep component ID as fallback)
-          if (!cleanTitle) {
-            console.warn(`⚠️  Component ${componentId} has no title, using ID as fallback`);
-          }
-
-          const choices =
-            component.items?.choices?.map(
-              (c) => c.label?.replace(/<[^>]*>/g, "").trim() ?? "",
-            ) ?? [];
-
-          questionsMap.set(component.id, {
-            title: cleanTitle || component.id,
-            type: component.type,
-            choices,
-          });
-          
-          console.log(`✓ Loaded question: ${cleanTitle.substring(0, 50)}... (type: ${component.type}, ${choices.length} choices)`);
-        } catch (err) {
-          console.warn(`Failed to fetch component ${componentId}:`, err);
-        }
-      }
-    } catch (err) {
+  // Fetch all pages in parallel (they don't depend on each other)
+  const pagesPromises = pageIds.map((pageId) =>
+    fetchJSON<PageData>(`/pages/${pageId}`).catch((err) => {
       console.warn(`Failed to fetch page ${pageId}:`, err);
+      return null;
+    })
+  );
+
+  const pages = await Promise.all(pagesPromises);
+
+  // Collect all component IDs from all pages
+  const allComponentIds: string[] = [];
+  pages.forEach((page) => {
+    if (page?.components) {
+      allComponentIds.push(...page.components);
+    }
+  });
+
+  console.log(`📋 Found ${allComponentIds.length} components to fetch`);
+
+  // Fetch all components in batches to avoid overwhelming the API
+  const BATCH_SIZE = 5;
+  const componentBatches: string[][] = [];
+  for (let i = 0; i < allComponentIds.length; i += BATCH_SIZE) {
+    componentBatches.push(allComponentIds.slice(i, i + BATCH_SIZE));
+  }
+
+  for (const batch of componentBatches) {
+    const batchPromises = batch.map((componentId) =>
+      fetchJSON<ComponentData>(`/components/${componentId}`).catch((err) => {
+        console.warn(`Failed to fetch component ${componentId}:`, err);
+        return null;
+      })
+    );
+
+    const components = await Promise.all(batchPromises);
+
+    components.forEach((component) => {
+      if (!component) return;
+
+      const cleanTitle = component.title?.replace(/<[^>]*>/g, "").trim() ?? "";
+
+      // Skip non-question components (text blocks, images, etc.)
+      const skipTypes = ["textZone", "image", "video", "separator"];
+      if (skipTypes.includes(component.type)) {
+        console.log(
+          `⏭️  Skipping non-question component ${component.id} (type: ${component.type})`,
+        );
+        return;
+      }
+
+      // Skip if title is empty after cleaning (but keep component ID as fallback)
+      if (!cleanTitle) {
+        console.warn(
+          `⚠️  Component ${component.id} has no title, using ID as fallback`,
+        );
+      }
+
+      const choices =
+        component.items?.choices?.map(
+          (c) => c.label?.replace(/<[^>]*>/g, "").trim() ?? "",
+        ) ?? [];
+
+      // IMPORTANT: Map preserves insertion order.
+      // Since we process batches sequentially and components in order, the map will be correctly ordered.
+      const questionType = mapQuestionType(component.type);
+
+      questionsMap.set(component.id, {
+        title: cleanTitle || component.id,
+        type: questionType,
+        choices: choices.map((label) => ({
+          label,
+          key: normalizeChoiceLabel(label),
+        })),
+      });
+
+      console.log(
+        `✓ Loaded question: ${cleanTitle.substring(0, 50)}... (type: ${component.type}, ${choices.length} choices)`,
+      );
+    });
+
+    // Add a small delay between batches to avoid rate limiting
+    if (componentBatches.indexOf(batch) < componentBatches.length - 1) {
+      await delay(RATE_LIMIT_DELAY_MS);
     }
   }
 
   console.log(`✓ Loaded ${questionsMap.size} questions`);
-  
+
   // Update cache
   questionsCache = {
     map: questionsMap,
     surveyId: surveyData.id,
     timestamp: Date.now(),
   };
-  
+
   return questionsMap;
+}
+
+function transformRespondentData(
+  respondent: RespondentData,
+  questionsMap: QuestionMap,
+): RawSurveyResponse {
+  const answers: RawAnswer[] = [];
+  if (respondent.questions) {
+    for (const [questionId, data] of Object.entries(respondent.questions)) {
+      const questionInfo = questionsMap.get(questionId);
+
+      if (!questionInfo) {
+        console.warn(
+          `⚠️  Question ${questionId} not found in questionsMap - skipping (likely deleted from survey)`,
+        );
+        continue; // Skip questions that no longer exist in the survey
+      }
+
+      const rawValue = data.choices?.[0];
+
+      let displayValue: string | number | string[] | null = rawValue as
+        | string
+        | number
+        | null;
+
+      if (
+        questionInfo.type === "single_choice" &&
+        typeof rawValue === "number"
+      ) {
+        const choiceEntry = questionInfo.choices[rawValue - 1];
+        if (choiceEntry) {
+          displayValue = choiceEntry.label;
+        }
+      }
+
+      if (
+        questionInfo.type === "multiple_choice" &&
+        Array.isArray(rawValue)
+      ) {
+        displayValue = (rawValue as unknown[]).map((value) =>
+          typeof value === "number"
+            ? questionInfo.choices[value - 1]?.label ?? String(value)
+            : String(value),
+        );
+      }
+
+      answers.push({
+        question_id: questionId,
+        question_title: questionInfo.title ?? questionId,
+        question_type: questionInfo.type,
+        value: displayValue,
+      });
+    }
+  }
+
+  return {
+    id: respondent.id,
+    status: respondent.complete ? "complete" : "partial",
+    submitted_at: respondent.updated_at ?? respondent.created_at,
+    started_at: respondent.created_at,
+    answers,
+  };
 }
 
 async function fetchCollectorData(): Promise<{
   survey: SurveyDetails;
   responses: RawSurveyResponse[];
+  questions: QuestionMeta[];
 }> {
   // Fetch collector info
   const collector = await fetchJSON<CollectorData>(
@@ -222,91 +355,113 @@ async function fetchCollectorData(): Promise<{
     id: surveyData.id,
     title: surveyData.title,
     description: surveyData.description,
+    created_at: (surveyData.created_at as string) || undefined,
   };
 
   // Fetch questions details
   const questionsMap = await fetchQuestionsMap(surveyData);
 
-  const respondentIds = collector.respondents ?? [];
-  console.log(`📊 Fetching ${respondentIds.length} respondents...`);
+  const allRespondentIds = collector.respondents ?? [];
+  console.log(`📊 Found ${allRespondentIds.length} total respondents.`);
 
-  // Fetch respondents sequentially to avoid rate limiting
-  const respondents: (RespondentData | null)[] = [];
-  for (const id of respondentIds) {
-    try {
-      const respondent = await fetchJSON<RespondentData>(`/respondents/${id}`);
-      respondents.push(respondent);
-      await delay(RATE_LIMIT_DELAY_MS);
-    } catch (err) {
-      console.warn(`Failed to fetch respondent ${id}:`, (err as Error).message);
-      respondents.push(null);
+  // --- INCREMENTAL FETCH LOGIC ---
+  let cachedResponses: RawSurveyResponse[] = [];
+  if (hasSupabaseCredentials && env.dragNSurvey.collectorId) {
+    const cachedBundle = await fetchRawData(env.dragNSurvey.collectorId);
+    if (cachedBundle) {
+      console.log(
+        `📦 Found cached bundle with ${cachedBundle.responses.length} responses.`,
+      );
+      cachedResponses = cachedBundle.responses;
     }
   }
 
-  const responses: RawSurveyResponse[] = respondents
-    .filter((r): r is RespondentData => r !== null)
-    .map((respondent) => {
-      const answers: RawAnswer[] = [];
-      if (respondent.questions) {
-        for (const [questionId, data] of Object.entries(respondent.questions)) {
-          const questionInfo = questionsMap.get(questionId);
-          
-          if (!questionInfo) {
-            console.warn(`⚠️  Question ${questionId} not found in questionsMap - skipping (likely deleted from survey)`);
-            continue; // Skip questions that no longer exist in the survey
-          }
-          
-          const rawValue = data.choices?.[0];
+  const cachedIds = new Set(cachedResponses.map((r) => r.id));
+  const newIds = allRespondentIds.filter((id) => !cachedIds.has(id));
 
-          let displayValue: string | number | string[] | null = rawValue as string | number | null;
+  const orderedQuestions: QuestionMeta[] = Array.from(questionsMap.entries()).map(
+    ([id, info]) => ({
+      id,
+      title: info.title,
+      type: info.type,
+      choices: info.choices,
+    }),
+  );
 
-          // Map choice index to label for choice questions (including yesNo)
-          if (
-            (questionInfo?.type === "choice" || questionInfo?.type === "yesNo") &&
-            typeof rawValue === "number" &&
-            questionInfo.choices[rawValue - 1]
-          ) {
-            displayValue = questionInfo.choices[rawValue - 1];
-          }
+  const newResponses: RawSurveyResponse[] = [];
 
-          // Map API type to our QuestionType
-          let questionType: QuestionType = "unknown";
-          if (questionInfo?.type === "choice") {
-            questionType = "single_choice";
-          } else if (questionInfo?.type === "text" || questionInfo?.type === "freeField") {
-            questionType = "text";
-          } else if (questionInfo?.type === "rating" || questionInfo?.type === "rate") {
-            questionType = "rating";
-          } else if (questionInfo?.type === "number") {
-            questionType = "number";
-          } else if (questionInfo?.type === "yesNo") {
-            questionType = "single_choice";
-          }
+  if (newIds.length > 0) {
+    console.log(`🚀 Fetching ${newIds.length} new respondents...`);
+    
+    // Fetch respondents in batches to speed up loading while avoiding rate limits
+    const RESPONDENT_BATCH_SIZE = 5;
+    const respondentBatches: string[][] = [];
+    for (let i = 0; i < newIds.length; i += RESPONDENT_BATCH_SIZE) {
+      respondentBatches.push(newIds.slice(i, i + RESPONDENT_BATCH_SIZE));
+    }
 
-          answers.push({
-            question_id: questionId,
-            question_title: questionInfo?.title ?? questionId,
-            question_type: questionType,
-            value: displayValue,
-          });
+    for (const batch of respondentBatches) {
+      const batchPromises = batch.map((id) =>
+        fetchJSON<RespondentData>(`/respondents/${id}`).catch((err) => {
+          console.warn(
+            `Failed to fetch respondent ${id}:`,
+            (err as Error).message,
+          );
+          return null;
+        })
+      );
+
+      const respondents = await Promise.all(batchPromises);
+
+      respondents.forEach((respondent) => {
+        if (respondent) {
+          const transformed = transformRespondentData(respondent, questionsMap);
+          newResponses.push(transformed);
         }
+      });
+
+      // Add delay between batches to avoid rate limiting
+      if (respondentBatches.indexOf(batch) < respondentBatches.length - 1) {
+        await delay(RATE_LIMIT_DELAY_MS);
       }
+    }
 
-      return {
-        id: respondent.id,
-        status: respondent.complete ? "complete" : "partial",
-        submitted_at: respondent.updated_at ?? respondent.created_at,
-        started_at: respondent.created_at,
-        answers,
-      };
+    console.log(`✓ Successfully fetched ${newResponses.length} new respondents`);
+  } else {
+    console.log("✅ No new respondents to fetch.");
+  }
+
+  // Merge and Save
+  const allResponses = [...cachedResponses, ...newResponses];
+
+  // Sort by submitted_at desc (most recent first)
+  allResponses.sort((a, b) => {
+    const dateA = new Date(a.submitted_at ?? 0).getTime();
+    const dateB = new Date(b.submitted_at ?? 0).getTime();
+    return dateB - dateA;
+  });
+
+  if (
+    hasSupabaseCredentials &&
+    newResponses.length > 0 &&
+    env.dragNSurvey.collectorId
+  ) {
+    console.log(
+      `💾 Saving updated bundle (${allResponses.length} responses) to Supabase...`,
+    );
+    await saveRawData(env.dragNSurvey.collectorId, {
+      survey,
+      responses: allResponses,
     });
+  }
 
-  console.log(`✓ Fetched ${responses.length} complete responses`);
-  if (responses.length > 0) {
+  console.log(`✓ Returning ${allResponses.length} responses`);
+
+  if (allResponses.length > 0) {
     console.log(`📋 Sample response:`, {
-      id: responses[0].id,
-      answersCount: responses[0].answers.length,
-      sampleAnswers: responses[0].answers.slice(0, 3).map(a => ({
+      id: allResponses[0].id,
+      answersCount: allResponses[0].answers.length,
+      sampleAnswers: allResponses[0].answers.slice(0, 3).map((a) => ({
         title: a.question_title.substring(0, 50),
         type: a.question_type,
         value: a.value,
@@ -314,7 +469,7 @@ async function fetchCollectorData(): Promise<{
     });
   }
 
-  return { survey, responses };
+  return { survey, responses: allResponses, questions: orderedQuestions };
 }
 
 export async function fetchSurveyBundle() {
@@ -324,12 +479,11 @@ export async function fetchSurveyBundle() {
   }
 
   try {
-    const { survey, responses } = await fetchCollectorData();
-    return { survey, responses };
+    const { survey, responses, questions } = await fetchCollectorData();
+    return { survey, responses, questions };
   } catch (error) {
     console.error("Drag'n Survey API error:", error);
     console.warn("Falling back to mock data.");
     return mockPayload();
   }
 }
-
