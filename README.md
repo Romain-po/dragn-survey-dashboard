@@ -26,6 +26,23 @@ Environment variables:
 | `DRAGNSURVEY_COLLECTOR_ID` | The collector ID from your survey (found in the distribution/diffusion section). |
 | `DRAGNSURVEY_API_KEY` | API token that has access to the collector responses. |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | Optional. Enables caching snapshots in `survey_snapshots`. |
+| `AUTH_USERNAME` / `AUTH_PASSWORD` | Optional. If set, enables simple authentication (username/password login). |
+| `AUTH_SECRET_TOKEN` | Optional. Random secret for session management (generate with `openssl rand -base64 32`). |
+
+### Optional authentication
+
+To protect your dashboard with a simple login:
+
+1. Add to your `.env.local`:
+   ```
+   AUTH_USERNAME=admin
+   AUTH_PASSWORD=your_secure_password
+   AUTH_SECRET_TOKEN=random_secret_string_here
+   ```
+2. Generate a secure token: `openssl rand -base64 32`
+3. Restart your dev server
+
+If these variables are not set, the dashboard is publicly accessible (no login required).
 
 ### Optional Supabase cache
 
@@ -54,9 +71,10 @@ Each time the API route fetches Drag'n Survey data it also writes a snapshot to 
    - `DRAGNSURVEY_COLLECTOR_ID=your-collector-id`
    - `DRAGNSURVEY_API_KEY=your-api-key`
    - (Optional) `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`
+   - (Optional) `AUTH_USERNAME`, `AUTH_PASSWORD`, and `AUTH_SECRET_TOKEN` for authentication
 6. Deploy!
 
-Future V2 (auth) can rely on Netlify Functions or Supabase auth without changing the current architecture.
+Authentication is now available via simple username/password stored in environment variables.
 
 ### Developing with mock data
 

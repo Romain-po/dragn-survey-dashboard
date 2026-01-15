@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
 
 import { DashboardData } from "@/lib/types";
@@ -22,6 +23,7 @@ type DashboardShellProps = {
 
 export const DashboardShell = ({ initialData }: DashboardShellProps) => {
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const router = useRouter();
 
   const { data, error, isValidating, mutate } = useSWR<DashboardData>(
     `/api/responses`,
@@ -46,6 +48,16 @@ export const DashboardShell = ({ initialData }: DashboardShellProps) => {
       console.error("Refresh failed", error);
     } finally {
       setIsManualRefreshing(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      router.push("/login");
+      router.refresh();
+    } catch (error) {
+      console.error("Logout failed", error);
     }
   };
 
@@ -121,6 +133,29 @@ export const DashboardShell = ({ initialData }: DashboardShellProps) => {
             </span>
             {/* Hover shine effect */}
             <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-linear-to-r from-transparent via-white/20 to-transparent z-0" />
+          </button>
+          
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="rounded-xl bg-white/5 border border-white/10 px-6 py-2 text-sm font-medium text-slate-300 transition-all hover:bg-white/10 hover:text-white"
+          >
+            <span className="flex items-center gap-2">
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                />
+              </svg>
+              <span>Déconnexion</span>
+            </span>
           </button>
         </div>
       </header>

@@ -2,24 +2,29 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 export function middleware(request: NextRequest) {
-  // Allow access to static assets and API routes used for auth
+  // If no auth credentials are configured, skip authentication
+  const hasAuth = process.env.AUTH_USERNAME && process.env.AUTH_PASSWORD;
+  if (!hasAuth) {
+    return NextResponse.next();
+  }
+
+  // Allow access to login page and auth API routes
   if (
-    request.nextUrl.pathname.startsWith("/_next") ||
-    request.nextUrl.pathname.startsWith("/static") ||
-    request.nextUrl.pathname.startsWith("/api/auth") ||
     request.nextUrl.pathname === "/login" ||
-    request.nextUrl.pathname === "/favicon.ico"
+    request.nextUrl.pathname.startsWith("/api/auth")
   ) {
     return NextResponse.next();
   }
 
   // Check for auth cookie
   const authCookie = request.cookies.get("auth_token");
-  const isAuthenticated = authCookie?.value === process.env.AUTH_SECRET_TOKEN;
+  const secretToken = process.env.AUTH_SECRET_TOKEN || "default-secret-change-me";
+  const isAuthenticated = authCookie?.value === secretToken;
 
   if (!isAuthenticated) {
     const loginUrl = new URL("/login", request.url);
-    // Redirect to login if not authenticated
+    // Preserve the original URL to redirect back after login
+    loginUrl.searchParams.set("from", request.nextUrl.pathname);
     return NextResponse.redirect(loginUrl);
   }
 
@@ -27,5 +32,13 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico).*)"],
+  matcher: [
+    /*
+     * Match all request paths except for:
+     * - _next/static (static files)
+     * - _next/image (image optimization)
+     * - favicon.ico, robots.txt, etc.
+     */
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
 };

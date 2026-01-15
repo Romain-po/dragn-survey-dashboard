@@ -11,9 +11,10 @@ import {
 import { normalizeChoiceLabel } from "./utils";
 
 const API_TIMEOUT_MS = 15_000;
-const RATE_LIMIT_DELAY_MS = 500; // Delay between API calls to avoid rate limiting
+const RATE_LIMIT_DELAY_MS = 1000; // Delay between API calls to avoid rate limiting (increased to 1s)
 const CACHE_DURATION_MS = 15 * 60 * 1000; // Cache questions for 15 minutes (questions rarely change)
-const MAX_RETRIES = 2; // Number of retries for failed requests
+const MAX_RETRIES = 3; // Number of retries for failed requests
+const BATCH_SIZE = 3; // Reduced batch size to avoid rate limits
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -60,11 +61,12 @@ async function fetchJSON<T>(
     if (!response.ok) {
       const errorBody = await response.text();
 
-      // Retry on rate limit errors
+      // Retry on rate limit errors with exponential backoff
       if (response.status === 429 && retries > 0) {
-        const waitTime = RATE_LIMIT_DELAY_MS * (MAX_RETRIES - retries + 2);
+        const backoffMultiplier = Math.pow(2, MAX_RETRIES - retries);
+        const waitTime = RATE_LIMIT_DELAY_MS * backoffMultiplier;
         console.warn(
-          `⏳ Rate limited, waiting ${waitTime}ms before retry (${retries} retries left)...`,
+          `⏳ Rate limited (429), waiting ${waitTime}ms before retry (${retries} retries left)...`,
         );
         await delay(waitTime);
         return fetchJSON<T>(endpoint, init, retries - 1);
@@ -168,6 +170,8 @@ async function fetchQuestionsMap(surveyData: SurveyData): Promise<QuestionMap> {
   const questionsMap: QuestionMap = new Map();
   const pageIds = surveyData.pages ?? [];
 
+  console.log(`📄 Fetching ${pageIds.length} pages...`);
+
   // Fetch all pages in parallel (they don't depend on each other)
   const pagesPromises = pageIds.map((pageId) =>
     fetchJSON<PageData>(`/pages/${pageId}`).catch((err) => {
@@ -177,6 +181,11 @@ async function fetchQuestionsMap(surveyData: SurveyData): Promise<QuestionMap> {
   );
 
   const pages = await Promise.all(pagesPromises);
+  
+  // Small delay after fetching pages before starting component fetch
+  if (pages.length > 0) {
+    await delay(RATE_LIMIT_DELAY_MS);
+  }
 
   // Collect all component IDs from all pages
   const allComponentIds: string[] = [];
@@ -189,13 +198,17 @@ async function fetchQuestionsMap(surveyData: SurveyData): Promise<QuestionMap> {
   console.log(`📋 Found ${allComponentIds.length} components to fetch`);
 
   // Fetch all components in batches to avoid overwhelming the API
-  const BATCH_SIZE = 5;
   const componentBatches: string[][] = [];
   for (let i = 0; i < allComponentIds.length; i += BATCH_SIZE) {
     componentBatches.push(allComponentIds.slice(i, i + BATCH_SIZE));
   }
 
-  for (const batch of componentBatches) {
+  console.log(`📦 Fetching ${componentBatches.length} batches of ${BATCH_SIZE} components each...`);
+
+  for (let i = 0; i < componentBatches.length; i++) {
+    const batch = componentBatches[i];
+    console.log(`  Batch ${i + 1}/${componentBatches.length}: fetching ${batch.length} components...`);
+
     const batchPromises = batch.map((componentId) =>
       fetchJSON<ComponentData>(`/components/${componentId}`).catch((err) => {
         console.warn(`Failed to fetch component ${componentId}:`, err);
@@ -249,8 +262,9 @@ async function fetchQuestionsMap(surveyData: SurveyData): Promise<QuestionMap> {
       );
     });
 
-    // Add a small delay between batches to avoid rate limiting
-    if (componentBatches.indexOf(batch) < componentBatches.length - 1) {
+    // Add delay between batches to avoid rate limiting
+    if (i < componentBatches.length - 1) {
+      console.log(`  ⏱️  Waiting ${RATE_LIMIT_DELAY_MS}ms before next batch...`);
       await delay(RATE_LIMIT_DELAY_MS);
     }
   }
@@ -394,13 +408,17 @@ async function fetchCollectorData(): Promise<{
     console.log(`🚀 Fetching ${newIds.length} new respondents...`);
     
     // Fetch respondents in batches to speed up loading while avoiding rate limits
-    const RESPONDENT_BATCH_SIZE = 5;
     const respondentBatches: string[][] = [];
-    for (let i = 0; i < newIds.length; i += RESPONDENT_BATCH_SIZE) {
-      respondentBatches.push(newIds.slice(i, i + RESPONDENT_BATCH_SIZE));
+    for (let i = 0; i < newIds.length; i += BATCH_SIZE) {
+      respondentBatches.push(newIds.slice(i, i + BATCH_SIZE));
     }
 
-    for (const batch of respondentBatches) {
+    console.log(`📦 Fetching ${respondentBatches.length} batches of up to ${BATCH_SIZE} respondents each...`);
+
+    for (let i = 0; i < respondentBatches.length; i++) {
+      const batch = respondentBatches[i];
+      console.log(`  Batch ${i + 1}/${respondentBatches.length}: fetching ${batch.length} respondents...`);
+
       const batchPromises = batch.map((id) =>
         fetchJSON<RespondentData>(`/respondents/${id}`).catch((err) => {
           console.warn(
@@ -421,7 +439,8 @@ async function fetchCollectorData(): Promise<{
       });
 
       // Add delay between batches to avoid rate limiting
-      if (respondentBatches.indexOf(batch) < respondentBatches.length - 1) {
+      if (i < respondentBatches.length - 1) {
+        console.log(`  ⏱️  Waiting ${RATE_LIMIT_DELAY_MS}ms before next batch...`);
         await delay(RATE_LIMIT_DELAY_MS);
       }
     }

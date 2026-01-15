@@ -19,7 +19,8 @@ export async function GET(request: Request) {
       headers: {
         "Cache-Control": forceRefresh 
           ? "no-store, max-age=0" 
-          : "public, s-maxage=60, stale-while-revalidate=300",
+          : "public, max-age=60, s-maxage=60, stale-while-revalidate=300",
+        "CDN-Cache-Control": "public, max-age=60, stale-while-revalidate=300",
       },
     });
   } catch (error) {
