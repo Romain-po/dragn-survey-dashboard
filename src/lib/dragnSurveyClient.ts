@@ -320,9 +320,12 @@ function transformRespondentData(
         questionInfo.type === "single_choice" &&
         typeof rawValue === "number"
       ) {
-        const choiceEntry = questionInfo.choices[rawValue - 1];
+        // API uses 0-based indexing (0, 1, 2, 3...)
+        const choiceEntry = questionInfo.choices[rawValue];
         if (choiceEntry) {
           displayValue = choiceEntry.label;
+        } else {
+          console.warn(`⚠️  No choice found for index ${rawValue} in question "${questionInfo.title}"`);
         }
       }
 
@@ -330,9 +333,10 @@ function transformRespondentData(
         questionInfo.type === "multiple_choice" &&
         Array.isArray(rawValue)
       ) {
+        // API uses 0-based indexing (0, 1, 2, 3...)
         displayValue = (rawValue as unknown[]).map((value) =>
           typeof value === "number"
-            ? questionInfo.choices[value - 1]?.label ?? String(value)
+            ? questionInfo.choices[value]?.label ?? String(value)
             : String(value),
         );
       }
